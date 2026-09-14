@@ -1,0 +1,26 @@
+# Архивы
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+
+# Бинарники
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+
+# Питон
+__pycache__/
+
+# venv
+.venv/
+venv/
+
+# Кэши тестов
+.pytest_cache/
+
+# Настройки редакторов
+.vscode/
