@@ -24,3 +24,7 @@ venv/
 
 # Настройки редакторов
 .vscode/
+
+bin/
+
+praktika1.pdf
