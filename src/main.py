@@ -1,81 +1,52 @@
-"""Эмулятор командной оболочки ОС. Этап 1: REPL.
+"""Эмулятор командной оболочки ОС: графический интерфейс.
 
-Вариант №14. Графический интерфейс, разбор строки с раскрытием
-переменных окружения, команды-заглушки ls и cd, команда exit.
+Этап 2 варианта №14. Точка входа читает конфигурацию, печатает
+отладочный вывод всех заданных параметров, выполняет стартовый скрипт
+и переходит в интерактивный режим.
 
-Константа MAX_ARGS задаёт максимальное число аргументов для команд,
-которые его ограничивают. Константа VAR_PATTERN описывает переменные
-окружения в двух формах: $VAR и ${VAR}.
+Константа ERROR_COLOR выделяет сообщения об ошибках, ECHO_COLOR
+выделяет строки, которые скрипт подставляет вместо ввода пользователя.
 """
 
-import os
-import re
-import shlex
+import sys
 import tkinter as tk
 from tkinter import scrolledtext
 
+from config import ConfigError, describe, load_config
+from emulator import (
+    ECHO,
+    ERROR,
+    PROMPT,
+    CommandError,
+    execute_line,
+    run_script,
+)
+
 VFS_NAME = "VFS"
-WINDOW_SIZE = "600x400"
-PROMPT = "$ "
+WINDOW_SIZE = "700x450"
 
 FONT_NAME = "Menlo"
-FONT_SIZE = 10
+FONT_SIZE = 11
 BACKGROUND_COLOR = "black"
 FOREGROUND_COLOR = "lime"
+ERROR_COLOR = "orange red"
+ECHO_COLOR = "deep sky blue"
 
-EXIT_COMMAND = "exit"
-CD_COMMAND = "cd"
-LS_COMMAND = "ls"
-STUB_COMMANDS = (LS_COMMAND, CD_COMMAND)
+ERROR_TAG = "error"
+ECHO_TAG = "echo"
 
-MAX_ARGS = {CD_COMMAND: 1, EXIT_COMMAND: 0}
+ERROR_PREFIX = "Ошибка: "
+CONFIG_ERROR = "Ошибка конфигурации: {reason}"
 
-VAR_PATTERN = re.compile(r"\$(\w+)|\$\{(\w+)\}")
-
-QUOTE_ERROR = "Ошибка разбора: незакрытая кавычка"
-ARGS_ERROR = "Ошибка: неверные аргументы команды {name}"
-UNKNOWN_ERROR = "Неизвестная команда: {name}"
-
-
-def expand_vars(token: str) -> str:
-    """Раскрывает $VAR и ${VAR} значениями переменных окружения ОС.
-
-    Неизвестная переменная раскрывается в пустую строку, как в bash.
-    """
-
-    def replace(match: re.Match) -> str:
-        """Возвращает значение переменной из найденного совпадения."""
-        name = match.group(1) or match.group(2)
-        return os.environ.get(name, "")
-
-    return VAR_PATTERN.sub(replace, token)
-
-
-def parse_line(line: str) -> list[str]:
-    """Разбирает строку на команду и аргументы с раскрытием переменных.
-
-    Раскрытие выполняется после разбиения на токены, поэтому значение
-    с пробелами остаётся одним аргументом. Вызывает ValueError, если
-    кавычка не закрыта.
-    """
-    return [expand_vars(token) for token in shlex.split(line)]
-
-
-def has_invalid_args(name: str, args: list[str]) -> bool:
-    """Проверяет, превышено ли допустимое число аргументов команды."""
-    return len(args) > MAX_ARGS.get(name, len(args))
-
-
-def format_stub(name: str, args: list[str]) -> str:
-    """Формирует вывод команды-заглушки: имя и её аргументы."""
-    return " ".join([name, *args])
+EXIT_FAILURE = 1
+EXIT_SUCCESS = 0
 
 
 class App(tk.Tk):
     """Окно эмулятора с общим текстовым полем ввода и вывода."""
 
-    def __init__(self) -> None:
-        """Создаёт окно и настраивает обработчики событий."""
+    def __init__(self, report: list[str]) -> None:
+        """Создаёт окно и печатает отладочный вывод параметров."""
         super().__init__()
         self.title(VFS_NAME)
         self.geometry(WINDOW_SIZE)
@@ -87,21 +58,27 @@ class App(tk.Tk):
             insertbackground=FOREGROUND_COLOR,
             font=(FONT_NAME, FONT_SIZE),
         )
+        self.output.tag_config(ERROR_TAG, foreground=ERROR_COLOR)
+        self.output.tag_config(ECHO_TAG, foreground=ECHO_COLOR)
         self.output.pack(fill=tk.BOTH, expand=True)
         self.output.bind("<Return>", self.on_enter)
-        self._print_prompt()
 
-    def _print_prompt(self) -> None:
+        for line in report:
+            self.print_line(line)
+        self.print_line("")
+
+    def print_line(self, text: str, tag: str | None = None) -> None:
+        """Выводит строку, при необходимости выделяя её цветом."""
+        tags = (tag,) if tag else ()
+        self.output.insert(tk.END, text + "\n", tags)
+
+    def print_prompt(self) -> None:
         """Выводит приглашение ввода и переносит курсор в конец."""
         self.output.insert(tk.END, PROMPT)
         self.output.mark_set(tk.INSERT, tk.END)
         self.output.see(tk.END)
 
-    def _print_line(self, text: str) -> None:
-        """Выводит строку результата."""
-        self.output.insert(tk.END, text + "\n")
-
-    def _read_command(self) -> str:
+    def read_command(self) -> str:
         """Читает команду из текущей строки, отбрасывая приглашение."""
         line = self.output.get("insert linestart", "insert lineend")
         if not line.startswith(PROMPT):
@@ -110,45 +87,71 @@ class App(tk.Tk):
 
     def on_enter(self, event: tk.Event) -> str:
         """Обрабатывает нажатие Enter и запускает введённую команду."""
-        command = self._read_command()
+        command = self.read_command()
         self.output.insert(tk.END, "\n")
 
-        if command:
-            self._execute(command)
+        if command and self.run_command(command):
+            return "break"
 
-        self._print_prompt()
+        self.print_prompt()
         return "break"
 
-    def _execute(self, line: str) -> None:
-        """Разбирает и выполняет одну команду эмулятора."""
+    def run_command(self, line: str) -> bool:
+        """Выполняет команду. Возвращает True при завершении работы."""
         try:
-            parts = parse_line(line)
-        except ValueError:
-            self._print_line(QUOTE_ERROR)
-            return
+            result = execute_line(line)
+        except CommandError as error:
+            self.print_line(ERROR_PREFIX + str(error), ERROR_TAG)
+            return False
 
-        if not parts:
-            return
-
-        name = parts[0]
-        args = parts[1:]
-
-        if has_invalid_args(name, args):
-            self._print_line(ARGS_ERROR.format(name=name))
-            return
-
-        if name == EXIT_COMMAND:
+        if result.output:
+            self.print_line(result.output)
+        if result.should_exit:
             self.destroy()
-        elif name in STUB_COMMANDS:
-            self._print_line(format_stub(name, args))
-        else:
-            self._print_line(UNKNOWN_ERROR.format(name=name))
+        return result.should_exit
+
+    def replay(self, events: list[tuple[str, str]]) -> None:
+        """Отображает протокол выполнения стартового скрипта."""
+        for kind, text in events:
+            if kind == ECHO:
+                self.print_line(text, ECHO_TAG)
+            elif kind == ERROR:
+                self.print_line(ERROR_PREFIX + text, ERROR_TAG)
+            else:
+                self.print_line(text)
 
 
-def main() -> None:
+def mirror(events: list[tuple[str, str]]) -> None:
+    """Дублирует протокол скрипта в стандартный вывод."""
+    for kind, text in events:
+        prefix = ERROR_PREFIX if kind == ERROR else ""
+        print(prefix + text)
+
+
+def main(argv: list[str] | None = None) -> int:
     """Точка входа приложения."""
-    App().mainloop()
+    try:
+        config = load_config(argv)
+    except ConfigError as error:
+        print(CONFIG_ERROR.format(reason=error), file=sys.stderr)
+        return EXIT_FAILURE
+
+    report = describe(config)
+    print("\n".join(report))
+
+    app = App(report)
+    if config.startup_path is not None:
+        result = run_script(config.startup_path)
+        mirror(result.events)
+        app.replay(result.events)
+        if result.should_exit:
+            app.destroy()
+            return EXIT_SUCCESS
+
+    app.print_prompt()
+    app.mainloop()
+    return EXIT_SUCCESS
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -1,9 +1,22 @@
-"""Тесты разбора команд и проверки аргументов."""
+"""Тесты движка: разбор строки, команды и стартовые скрипты."""
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 
-from main import expand_vars, format_stub, has_invalid_args, parse_line
+from emulator import (
+    ECHO,
+    ERROR,
+    OUTPUT,
+    CommandError,
+    execute_line,
+    expand_vars,
+    format_stub,
+    has_invalid_args,
+    parse_line,
+    run_script,
+)
 
 
 class TestParser(unittest.TestCase):
@@ -123,6 +136,94 @@ class TestStubOutput(unittest.TestCase):
             format_stub("ls", ["-l", "/home"]),
             "ls -l /home",
         )
+
+
+class TestExecuteLine(unittest.TestCase):
+    """Проверяет выполнение отдельной команды."""
+
+    def test_stub_returns_output(self) -> None:
+        """Заглушка возвращает имя и аргументы."""
+        self.assertEqual(execute_line("ls -l").output, "ls -l")
+
+    def test_exit_requests_shutdown(self) -> None:
+        """Команда exit запрашивает завершение работы."""
+        self.assertTrue(execute_line("exit").should_exit)
+
+    def test_empty_line_does_nothing(self) -> None:
+        """Пустая строка не вызывает ошибки."""
+        self.assertEqual(execute_line("   ").output, "")
+
+    def test_unknown_command(self) -> None:
+        """Неизвестная команда сообщает об ошибке."""
+        with self.assertRaises(CommandError):
+            execute_line("pwd")
+
+    def test_unclosed_quote(self) -> None:
+        """Незакрытая кавычка сообщает об ошибке разбора."""
+        with self.assertRaises(CommandError):
+            execute_line('cd "unclosed')
+
+    def test_too_many_arguments(self) -> None:
+        """Лишние аргументы сообщают об ошибке."""
+        with self.assertRaises(CommandError):
+            execute_line("cd /home /tmp")
+
+
+class TestScript(unittest.TestCase):
+    """Проверяет выполнение стартового скрипта."""
+
+    def write_script(self, text: str) -> Path:
+        """Записывает временный стартовый скрипт."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        path = Path(temp.name) / "startup.txt"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def kinds(self, path: Path) -> list[str]:
+        """Возвращает виды записей протокола выполнения."""
+        return [kind for kind, _ in run_script(path).events]
+
+    def test_input_is_echoed(self) -> None:
+        """Протокол содержит введённую строку."""
+        self.assertIn(ECHO, self.kinds(self.write_script("ls\n")))
+
+    def test_output_is_recorded(self) -> None:
+        """Протокол содержит вывод команды."""
+        result = run_script(self.write_script("ls -l\n"))
+        self.assertEqual(result.events[-1], (OUTPUT, "ls -l"))
+
+    def test_comments_and_blanks_skipped(self) -> None:
+        """Комментарии и пустые строки пропускаются."""
+        result = run_script(self.write_script("# текст\n\n"))
+        self.assertEqual(result.events, [])
+
+    def test_bad_line_is_skipped(self) -> None:
+        """Ошибочная строка не останавливает выполнение."""
+        script = self.write_script("pwd\nls конец\n")
+        result = run_script(script)
+        kinds = [kind for kind, _ in result.events]
+        self.assertIn(ERROR, kinds)
+        self.assertEqual(result.events[-1], (OUTPUT, "ls конец"))
+
+    def test_error_mentions_line_number(self) -> None:
+        """Сообщение об ошибке содержит номер строки."""
+        result = run_script(self.write_script("ls\npwd\n"))
+        errors = [text for kind, text in result.events if kind == ERROR]
+        self.assertIn("2", errors[0])
+
+    def test_exit_stops_script(self) -> None:
+        """Команда exit прекращает выполнение скрипта."""
+        result = run_script(self.write_script("exit\nls\n"))
+        self.assertTrue(result.should_exit)
+        self.assertNotIn(OUTPUT, [kind for kind, _ in result.events])
+
+    def test_missing_script_reports_error(self) -> None:
+        """Отсутствующий скрипт даёт сообщение об ошибке."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        result = run_script(Path(temp.name) / "нет.txt")
+        self.assertEqual(result.events[0][0], ERROR)
 
 
 if __name__ == "__main__":

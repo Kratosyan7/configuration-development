@@ -1,3 +1,31 @@
 #!/bin/sh
+# Запуск эмулятора и его тестов.
+#
+#   ./run.sh                  запуск приложения
+#   ./run.sh run [параметры]  запуск с параметрами эмулятора
+#   ./run.sh test             запуск тестов
+#
+# Интерпретатор переопределяется переменной PYTHON.
+set -eu
 
-python3 src/main.py "$@"
+ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
+PYTHON=${PYTHON:-python3}
+export PYTHONPATH="$ROOT_DIR/src"
+
+COMMAND=${1:-run}
+if [ $# -gt 0 ]; then
+    shift
+fi
+
+case "$COMMAND" in
+    run)
+        exec "$PYTHON" "$ROOT_DIR/src/main.py" "$@"
+        ;;
+    test)
+        exec "$PYTHON" -m unittest discover -s "$ROOT_DIR/tests" "$@"
+        ;;
+    *)
+        echo "Использование: $0 [run|test] [параметры]" >&2
+        exit 1
+        ;;
+esac
