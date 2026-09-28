@@ -3,9 +3,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-echo "=== конфиг задаёт data/vfs, строка задаёт data/vfs_cli ==="
-echo "Ожидается: путь к VFS = data/vfs_cli [командная строка]"
-./run.sh run --config config/default.toml --vfs data/vfs_cli
+echo "=== конфиг задаёт vfs_deep, строка задаёт vfs_flat ==="
+echo "Ожидается: путь к VFS = data/vfs_flat [командная строка]"
+./run.sh run --config config/default.toml --vfs data/vfs_flat
 
 echo "=== переопределён только стартовый скрипт ==="
 echo "Ожидается: VFS из файла, скрипт из командной строки"

@@ -1,7 +1,10 @@
 """Движок эмулятора: разбор строки, команды и стартовые скрипты.
 
-Этапы 1 и 2 варианта №14. Модуль не зависит от графического интерфейса,
-поэтому полностью покрывается тестами.
+Этапы 1, 2 и 3 варианта №14. Модуль не зависит от графического
+интерфейса, поэтому полностью покрывается тестами.
+
+Начиная с Этапа 3 у команд появляется состояние, поэтому execute_line
+и run_script принимают загруженную VFS первым аргументом.
 
 Константа MAX_ARGS задаёт максимальное число аргументов для команд,
 которые его ограничивают. Константа VAR_PATTERN описывает переменные
@@ -15,15 +18,18 @@ import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vfs import Vfs, describe_source, vfs_hash
+
 PROMPT = "$ "
 COMMENT_PREFIX = "#"
 
 EXIT_COMMAND = "exit"
 CD_COMMAND = "cd"
 LS_COMMAND = "ls"
+VFS_INFO_COMMAND = "vfs-info"
 STUB_COMMANDS = (LS_COMMAND, CD_COMMAND)
 
-MAX_ARGS = {CD_COMMAND: 1, EXIT_COMMAND: 0}
+MAX_ARGS = {CD_COMMAND: 1, EXIT_COMMAND: 0, VFS_INFO_COMMAND: 0}
 
 VAR_PATTERN = re.compile(r"\$(\w+)|\$\{(\w+)\}")
 
@@ -32,6 +38,10 @@ ARGS_ERROR = "неверные аргументы команды {name}"
 UNKNOWN_ERROR = "неизвестная команда: {name}"
 SCRIPT_ERROR = "ошибка в строке {number}: {reason}"
 READ_ERROR = "не удалось прочитать стартовый скрипт: {reason}"
+
+VFS_INFO_NAME = "имя VFS: {name}"
+VFS_INFO_SOURCE = "источник: {source}"
+VFS_INFO_HASH = "SHA-256: {digest}"
 
 ECHO = "echo"
 OUTPUT = "output"
@@ -92,7 +102,18 @@ def format_stub(name: str, args: list[str]) -> str:
     return " ".join([name, *args])
 
 
-def execute_line(line: str) -> CommandResult:
+def format_vfs_info(vfs: Vfs) -> str:
+    """Формирует ответ служебной команды vfs-info."""
+    return "\n".join(
+        [
+            VFS_INFO_NAME.format(name=vfs.name),
+            VFS_INFO_SOURCE.format(source=describe_source(vfs)),
+            VFS_INFO_HASH.format(digest=vfs_hash(vfs)),
+        ]
+    )
+
+
+def execute_line(vfs: Vfs, line: str) -> CommandResult:
     """Выполняет одну строку эмулятора.
 
     Вызывает CommandError при ошибке разбора или выполнения.
@@ -113,12 +134,14 @@ def execute_line(line: str) -> CommandResult:
 
     if name == EXIT_COMMAND:
         return CommandResult(should_exit=True)
+    if name == VFS_INFO_COMMAND:
+        return CommandResult(output=format_vfs_info(vfs))
     if name in STUB_COMMANDS:
         return CommandResult(output=format_stub(name, args))
     raise CommandError(UNKNOWN_ERROR.format(name=name))
 
 
-def run_script(path: Path) -> ScriptResult:
+def run_script(vfs: Vfs, path: Path) -> ScriptResult:
     """Выполняет стартовый скрипт, имитируя диалог с пользователем.
 
     В протокол попадает и ввод, и вывод. Ошибочные строки пропускаются:
@@ -137,19 +160,24 @@ def run_script(path: Path) -> ScriptResult:
         if not line or line.startswith(COMMENT_PREFIX):
             continue
         result.events.append((ECHO, PROMPT + line))
-        if run_script_line(line, number, result):
+        if run_script_line(vfs, line, number, result):
             result.should_exit = True
             return result
     return result
 
 
-def run_script_line(line: str, number: int, result: ScriptResult) -> bool:
+def run_script_line(
+    vfs: Vfs,
+    line: str,
+    number: int,
+    result: ScriptResult,
+) -> bool:
     """Выполняет одну строку скрипта и дописывает протокол.
 
     Возвращает True, если запрошено завершение работы эмулятора.
     """
     try:
-        command = execute_line(line)
+        command = execute_line(vfs, line)
     except CommandError as error:
         reason = SCRIPT_ERROR.format(number=number, reason=error)
         result.events.append((ERROR, reason))
