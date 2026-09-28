@@ -1,2 +1,2 @@
-vfs_path = "data/vfs"
+vfs_path = "data/vfs_flat"
 colour = "green"

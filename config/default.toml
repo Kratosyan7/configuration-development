@@ -1,2 +1,2 @@
-vfs_path = "data/vfs"
-startup_path = "startup/stage2.txt"
+vfs_path = "data/vfs_deep"
+startup_path = "startup/stage3.txt"

@@ -17,6 +17,7 @@ from emulator import (
     parse_line,
     run_script,
 )
+from vfs import empty_vfs, load_vfs
 
 
 class TestParser(unittest.TestCase):
@@ -118,6 +119,10 @@ class TestArgumentValidation(unittest.TestCase):
         """Команда exit с аргументом не проходит проверку."""
         self.assertTrue(has_invalid_args("exit", ["now"]))
 
+    def test_vfs_info_rejects_arguments(self) -> None:
+        """Команда vfs-info с аргументом не проходит проверку."""
+        self.assertTrue(has_invalid_args("vfs-info", ["лишний"]))
+
     def test_ls_accepts_any_arguments(self) -> None:
         """Команда ls не ограничена по числу аргументов."""
         self.assertFalse(has_invalid_args("ls", ["-l", "-a", "/tmp"]))
@@ -138,38 +143,84 @@ class TestStubOutput(unittest.TestCase):
         )
 
 
-class TestExecuteLine(unittest.TestCase):
+class EmulatorTestCase(unittest.TestCase):
+    """Готовит VFS из временной директории."""
+
+    def prepare_vfs(self):
+        """Создаёт источник VFS и загружает его в память."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        source = Path(temp.name) / "demo"
+        (source / "home").mkdir(parents=True)
+        (source / "root.txt").write_text("корень\n", encoding="utf-8")
+        return load_vfs(source)
+
+
+class TestExecuteLine(EmulatorTestCase):
     """Проверяет выполнение отдельной команды."""
 
     def test_stub_returns_output(self) -> None:
         """Заглушка возвращает имя и аргументы."""
-        self.assertEqual(execute_line("ls -l").output, "ls -l")
+        result = execute_line(self.prepare_vfs(), "ls -l")
+        self.assertEqual(result.output, "ls -l")
 
     def test_exit_requests_shutdown(self) -> None:
         """Команда exit запрашивает завершение работы."""
-        self.assertTrue(execute_line("exit").should_exit)
+        self.assertTrue(execute_line(empty_vfs(), "exit").should_exit)
 
     def test_empty_line_does_nothing(self) -> None:
         """Пустая строка не вызывает ошибки."""
-        self.assertEqual(execute_line("   ").output, "")
+        self.assertEqual(execute_line(empty_vfs(), "   ").output, "")
 
     def test_unknown_command(self) -> None:
         """Неизвестная команда сообщает об ошибке."""
         with self.assertRaises(CommandError):
-            execute_line("pwd")
+            execute_line(empty_vfs(), "pwd")
 
     def test_unclosed_quote(self) -> None:
         """Незакрытая кавычка сообщает об ошибке разбора."""
         with self.assertRaises(CommandError):
-            execute_line('cd "unclosed')
+            execute_line(empty_vfs(), 'cd "unclosed')
 
     def test_too_many_arguments(self) -> None:
         """Лишние аргументы сообщают об ошибке."""
         with self.assertRaises(CommandError):
-            execute_line("cd /home /tmp")
+            execute_line(empty_vfs(), "cd /home /tmp")
 
 
-class TestScript(unittest.TestCase):
+class TestVfsInfo(EmulatorTestCase):
+    """Проверяет служебную команду vfs-info."""
+
+    def test_output_contains_name(self) -> None:
+        """Ответ содержит имя загруженной VFS."""
+        output = execute_line(self.prepare_vfs(), "vfs-info").output
+        self.assertIn("demo", output)
+
+    def test_output_contains_hash(self) -> None:
+        """Ответ содержит хеш SHA-256."""
+        output = execute_line(self.prepare_vfs(), "vfs-info").output
+        self.assertIn("SHA-256", output)
+
+    def test_output_contains_source(self) -> None:
+        """Ответ содержит путь к источнику VFS."""
+        vfs = self.prepare_vfs()
+        output = execute_line(vfs, "vfs-info").output
+        self.assertIn(str(vfs.source), output)
+
+    def test_rejects_arguments(self) -> None:
+        """Команда не принимает аргументов."""
+        with self.assertRaises(CommandError):
+            execute_line(empty_vfs(), "vfs-info лишний")
+
+    def test_hash_is_stable_between_calls(self) -> None:
+        """Повторный вызов даёт тот же хеш: VFS не изменяется."""
+        vfs = self.prepare_vfs()
+        first = execute_line(vfs, "vfs-info").output
+        second = execute_line(vfs, "vfs-info").output
+        self.assertEqual(first, second)
+
+
+class TestScript(EmulatorTestCase):
     """Проверяет выполнение стартового скрипта."""
 
     def write_script(self, text: str) -> Path:
@@ -180,49 +231,51 @@ class TestScript(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
-    def kinds(self, path: Path) -> list[str]:
-        """Возвращает виды записей протокола выполнения."""
-        return [kind for kind, _ in run_script(path).events]
-
     def test_input_is_echoed(self) -> None:
         """Протокол содержит введённую строку."""
-        self.assertIn(ECHO, self.kinds(self.write_script("ls\n")))
+        result = run_script(empty_vfs(), self.write_script("ls\n"))
+        self.assertIn(ECHO, [kind for kind, _ in result.events])
 
     def test_output_is_recorded(self) -> None:
         """Протокол содержит вывод команды."""
-        result = run_script(self.write_script("ls -l\n"))
+        result = run_script(empty_vfs(), self.write_script("ls -l\n"))
         self.assertEqual(result.events[-1], (OUTPUT, "ls -l"))
 
     def test_comments_and_blanks_skipped(self) -> None:
         """Комментарии и пустые строки пропускаются."""
-        result = run_script(self.write_script("# текст\n\n"))
+        result = run_script(empty_vfs(), self.write_script("# текст\n\n"))
         self.assertEqual(result.events, [])
 
     def test_bad_line_is_skipped(self) -> None:
         """Ошибочная строка не останавливает выполнение."""
         script = self.write_script("pwd\nls конец\n")
-        result = run_script(script)
-        kinds = [kind for kind, _ in result.events]
-        self.assertIn(ERROR, kinds)
+        result = run_script(empty_vfs(), script)
+        self.assertIn(ERROR, [kind for kind, _ in result.events])
         self.assertEqual(result.events[-1], (OUTPUT, "ls конец"))
 
     def test_error_mentions_line_number(self) -> None:
         """Сообщение об ошибке содержит номер строки."""
-        result = run_script(self.write_script("ls\npwd\n"))
+        result = run_script(empty_vfs(), self.write_script("ls\npwd\n"))
         errors = [text for kind, text in result.events if kind == ERROR]
         self.assertIn("2", errors[0])
 
     def test_exit_stops_script(self) -> None:
         """Команда exit прекращает выполнение скрипта."""
-        result = run_script(self.write_script("exit\nls\n"))
+        result = run_script(empty_vfs(), self.write_script("exit\nls\n"))
         self.assertTrue(result.should_exit)
         self.assertNotIn(OUTPUT, [kind for kind, _ in result.events])
+
+    def test_vfs_info_works_in_script(self) -> None:
+        """Служебная команда доступна из стартового скрипта."""
+        script = self.write_script("vfs-info\n")
+        result = run_script(self.prepare_vfs(), script)
+        self.assertIn("SHA-256", result.events[-1][1])
 
     def test_missing_script_reports_error(self) -> None:
         """Отсутствующий скрипт даёт сообщение об ошибке."""
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        result = run_script(Path(temp.name) / "нет.txt")
+        result = run_script(empty_vfs(), Path(temp.name) / "нет.txt")
         self.assertEqual(result.events[0][0], ERROR)
 
 
