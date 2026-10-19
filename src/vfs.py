@@ -10,6 +10,7 @@
 """
 
 import hashlib
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +20,8 @@ ROOT_PATH = "/"
 SEPARATOR = "/"
 
 NO_SOURCE = "не задан"
+DEFAULT_OWNER = "user"
+DEFAULT_GROUP = "users"
 
 MISSING_ERROR = "источник VFS не найден: {path}"
 NOT_DIR_ERROR = "источник VFS не является каталогом: {path}"
@@ -37,6 +40,10 @@ class VfsNode:
     is_dir: bool
     data: bytes = b""
     children: dict[str, "VfsNode"] = field(default_factory=dict)
+    owner: str = DEFAULT_OWNER
+    group: str = DEFAULT_GROUP
+    accessed_ns: int = field(default_factory=time.time_ns)
+    modified_ns: int = field(default_factory=time.time_ns)
 
 
 @dataclass

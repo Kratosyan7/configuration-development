@@ -1,0 +1,41 @@
+# Этап 5, запуск с data/vfs_deep. Все изменения происходят в памяти.
+clear
+vfs-info
+touch new.txt "file with spaces.txt"
+wc new.txt "file with spaces.txt"
+ls -l new.txt
+touch -a new.txt
+touch -m new.txt
+touch -am new.txt
+touch -c absent.txt
+ls absent.txt
+touch -- -file
+ls -- -file
+cd /home/user/docs
+touch local.txt
+touch report.txt
+wc report.txt
+cd /
+chown alice new.txt
+ls -l new.txt
+chown alice:staff new.txt "file with spaces.txt"
+chown :editors new.txt
+chown -- 1000:100 new.txt
+ls -l new.txt "file with spaces.txt"
+chown -R bob:staff home
+ls -l /home/user/docs
+chown -R -- :readers home
+ls -l /home/user/docs
+# Намеренные ошибки и продолжение работы.
+touch
+touch missing/child
+touch new.txt/child
+touch -z new.txt
+chown
+chown alice
+chown : new.txt
+chown alice: new.txt
+chown alice missing
+chown -z alice new.txt
+vfs-info
+# Окно остаётся открытым; изменения исчезнут после перезапуска.

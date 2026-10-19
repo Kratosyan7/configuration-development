@@ -45,11 +45,12 @@ def list_entries(vfs: Vfs, path: str, hidden: bool):
 
 
 def format_entry(name: str, node: VfsNode, long: bool) -> str:
-    """Показывает имя либо тип, размер в байтах и имя."""
+    """Показывает тип, владельца, группу, байты и время изменения."""
     if not long:
         return name
     kind = "d" if node.is_dir else "-"
-    return f"{kind} {len(node.data)} {name}"
+    return (f"{kind} {node.owner}:{node.group} {len(node.data)} "
+            f"{node.modified_ns} {name}")
 
 
 def list_directory(vfs: Vfs, args: list[str]) -> str:

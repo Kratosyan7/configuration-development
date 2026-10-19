@@ -1,6 +1,6 @@
 """Движок эмулятора: разбор строки, команды и стартовые скрипты.
 
-Этапы 1, 2 и 3 варианта №14. Модуль не зависит от графического
+Этапы 1–5 варианта №14. Модуль не зависит от графического
 интерфейса, поэтому полностью покрывается тестами.
 
 Начиная с Этапа 3 у команд появляется состояние, поэтому execute_line
@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from commands import change_directory, list_directory, word_count
+from mutations import chown, touch
 from vfs import Vfs, VfsError, describe_source, vfs_hash
 
 PROMPT = "$ "
@@ -30,7 +31,7 @@ LS_COMMAND = "ls"
 VFS_INFO_COMMAND = "vfs-info"
 CLEAR_COMMAND = "clear"
 COMMANDS = {LS_COMMAND: list_directory, CD_COMMAND: change_directory,
-            "wc": word_count}
+            "wc": word_count, "touch": touch, "chown": chown}
 
 MAX_ARGS = {CD_COMMAND: 1, EXIT_COMMAND: 0, VFS_INFO_COMMAND: 0,
             CLEAR_COMMAND: 0}
