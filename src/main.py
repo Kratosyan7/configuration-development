@@ -15,6 +15,7 @@ from tkinter import scrolledtext
 
 from config import Config, ConfigError, describe, load_config
 from emulator import (
+    CLEAR,
     ECHO,
     ERROR,
     PROMPT,
@@ -110,6 +111,8 @@ class App(tk.Tk):
             self.print_line(ERROR_PREFIX + str(error), ERROR_TAG)
             return False
 
+        if result.should_clear:
+            self.output.delete("1.0", tk.END)
         if result.output:
             self.print_line(result.output)
         if result.should_exit:
@@ -119,7 +122,9 @@ class App(tk.Tk):
     def replay(self, events: list[tuple[str, str]]) -> None:
         """Отображает протокол выполнения стартового скрипта."""
         for kind, text in events:
-            if kind == ECHO:
+            if kind == CLEAR:
+                self.output.delete("1.0", tk.END)
+            elif kind == ECHO:
                 self.print_line(text, ECHO_TAG)
             elif kind == ERROR:
                 self.print_line(ERROR_PREFIX + text, ERROR_TAG)
@@ -146,6 +151,9 @@ def prepare_vfs(config: Config, report: list[str]) -> Vfs:
 def mirror(events: list[tuple[str, str]]) -> None:
     """Дублирует протокол скрипта в стандартный вывод."""
     for kind, text in events:
+        if kind == CLEAR:
+            print("[экран очищен]")
+            continue
         prefix = ERROR_PREFIX if kind == ERROR else ""
         print(prefix + text)
 

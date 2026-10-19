@@ -29,7 +29,7 @@ class VfsTestCase(unittest.TestCase):
 
         docs = source / "home" / "user" / "docs"
         docs.mkdir(parents=True)
-        (docs / "report.txt").write_text("одна\nдве\n", encoding="utf-8")
+        (docs / "report.txt").write_bytes("одна\nдве\n".encode("utf-8"))
         (source / "root.txt").write_text("корень\n", encoding="utf-8")
         (source / "empty").mkdir()
         return source, load_vfs(source)

@@ -46,6 +46,7 @@ class Vfs:
     name: str
     root: VfsNode
     source: Path | None = None
+    cwd: list[str] = field(default_factory=list)
 
 
 def empty_vfs(name: str = DEFAULT_VFS_NAME) -> Vfs:

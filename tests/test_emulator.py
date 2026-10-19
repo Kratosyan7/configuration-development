@@ -159,10 +159,11 @@ class EmulatorTestCase(unittest.TestCase):
 class TestExecuteLine(EmulatorTestCase):
     """Проверяет выполнение отдельной команды."""
 
-    def test_stub_returns_output(self) -> None:
-        """Заглушка возвращает имя и аргументы."""
+    def test_ls_returns_entries(self) -> None:
+        """Команда выводит реальные элементы виртуального каталога."""
         result = execute_line(self.prepare_vfs(), "ls -l")
-        self.assertEqual(result.output, "ls -l")
+        self.assertIn("root.txt", result.output)
+        self.assertIn("home", result.output)
 
     def test_exit_requests_shutdown(self) -> None:
         """Команда exit запрашивает завершение работы."""
@@ -238,8 +239,8 @@ class TestScript(EmulatorTestCase):
 
     def test_output_is_recorded(self) -> None:
         """Протокол содержит вывод команды."""
-        result = run_script(empty_vfs(), self.write_script("ls -l\n"))
-        self.assertEqual(result.events[-1], (OUTPUT, "ls -l"))
+        result = run_script(self.prepare_vfs(), self.write_script("ls\n"))
+        self.assertEqual(result.events[-1], (OUTPUT, "home\nroot.txt"))
 
     def test_comments_and_blanks_skipped(self) -> None:
         """Комментарии и пустые строки пропускаются."""
@@ -248,10 +249,10 @@ class TestScript(EmulatorTestCase):
 
     def test_bad_line_is_skipped(self) -> None:
         """Ошибочная строка не останавливает выполнение."""
-        script = self.write_script("pwd\nls конец\n")
-        result = run_script(empty_vfs(), script)
+        script = self.write_script("pwd\nls\n")
+        result = run_script(self.prepare_vfs(), script)
         self.assertIn(ERROR, [kind for kind, _ in result.events])
-        self.assertEqual(result.events[-1], (OUTPUT, "ls конец"))
+        self.assertEqual(result.events[-1], (OUTPUT, "home\nroot.txt"))
 
     def test_error_mentions_line_number(self) -> None:
         """Сообщение об ошибке содержит номер строки."""

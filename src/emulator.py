@@ -18,7 +18,8 @@ import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from vfs import Vfs, describe_source, vfs_hash
+from commands import change_directory, list_directory, word_count
+from vfs import Vfs, VfsError, describe_source, vfs_hash
 
 PROMPT = "$ "
 COMMENT_PREFIX = "#"
@@ -27,9 +28,12 @@ EXIT_COMMAND = "exit"
 CD_COMMAND = "cd"
 LS_COMMAND = "ls"
 VFS_INFO_COMMAND = "vfs-info"
-STUB_COMMANDS = (LS_COMMAND, CD_COMMAND)
+CLEAR_COMMAND = "clear"
+COMMANDS = {LS_COMMAND: list_directory, CD_COMMAND: change_directory,
+            "wc": word_count}
 
-MAX_ARGS = {CD_COMMAND: 1, EXIT_COMMAND: 0, VFS_INFO_COMMAND: 0}
+MAX_ARGS = {CD_COMMAND: 1, EXIT_COMMAND: 0, VFS_INFO_COMMAND: 0,
+            CLEAR_COMMAND: 0}
 
 VAR_PATTERN = re.compile(r"\$(\w+)|\$\{(\w+)\}")
 
@@ -46,6 +50,7 @@ VFS_INFO_HASH = "SHA-256: {digest}"
 ECHO = "echo"
 OUTPUT = "output"
 ERROR = "error"
+CLEAR = "clear"
 
 
 class CommandError(Exception):
@@ -58,6 +63,7 @@ class CommandResult:
 
     output: str = ""
     should_exit: bool = False
+    should_clear: bool = False
 
 
 @dataclass
@@ -136,9 +142,19 @@ def execute_line(vfs: Vfs, line: str) -> CommandResult:
         return CommandResult(should_exit=True)
     if name == VFS_INFO_COMMAND:
         return CommandResult(output=format_vfs_info(vfs))
-    if name in STUB_COMMANDS:
-        return CommandResult(output=format_stub(name, args))
+    if name == CLEAR_COMMAND:
+        return CommandResult(should_clear=True)
+    if name in COMMANDS:
+        return run_handler(vfs, name, args)
     raise CommandError(UNKNOWN_ERROR.format(name=name))
+
+
+def run_handler(vfs: Vfs, name: str, args: list[str]) -> CommandResult:
+    """Переводит ошибки файловых команд в общий формат движка."""
+    try:
+        return CommandResult(output=COMMANDS[name](vfs, args))
+    except VfsError as error:
+        raise CommandError(f"{name}: {error}") from error
 
 
 def run_script(vfs: Vfs, path: Path) -> ScriptResult:
@@ -151,7 +167,7 @@ def run_script(vfs: Vfs, path: Path) -> ScriptResult:
     result = ScriptResult()
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as error:
+    except (OSError, UnicodeError) as error:
         result.events.append((ERROR, READ_ERROR.format(reason=error)))
         return result
 
@@ -183,6 +199,8 @@ def run_script_line(
         result.events.append((ERROR, reason))
         return False
 
+    if command.should_clear:
+        result.events.append((CLEAR, ""))
     if command.output:
         result.events.append((OUTPUT, command.output))
     return command.should_exit

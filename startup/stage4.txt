@@ -1,0 +1,33 @@
+# Этап 4, запуск с data/vfs_deep. Ошибки ниже намеренные.
+clear
+vfs-info
+ls
+ls -a
+ls -l
+ls -al /home /root.txt
+cd /home/user/docs
+ls . ..
+wc report.txt
+wc -l report.txt
+wc -w report.txt
+wc -m report.txt
+wc -c report.txt
+wc -lwmc report.txt draft.txt
+wc -- report.txt
+cd ../docs
+cd /
+cd
+ls $HOME
+cd missing
+cd root.txt
+cd home user
+cd "broken
+ls -z
+wc
+wc /home
+wc missing
+wc -z root.txt
+clear extra
+unknown
+exit extra
+# Без exit: результат остаётся в окне для просмотра и ручной проверки.
